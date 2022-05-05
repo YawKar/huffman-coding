@@ -7,12 +7,13 @@
 typedef struct BitReader {
     FILE* inputFile;
     uChar currentByte;
-    uInt currentBitPos;
-    uInt countReadBytes;
-    uInt bytesLeft;
+    uInt currentBitIdx;
+    uInt readBitsCounter;
+    unsigned long long bitsToReadTotal;
     uInt (*readBit) (struct BitReader*);
+    uInt (*haveBit) (struct BitReader*);
 } BitReader;
 
-BitReader* newBitReader(FILE* inputFile, uInt numberOfBytesToRead);
+BitReader* newBitReader(FILE* inputFile, unsigned long long bitsToReadTotal);
 
 #endif //HUFFMAN_CODING_BITREADER_H

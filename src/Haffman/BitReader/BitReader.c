@@ -2,21 +2,28 @@
 #include "BitReader.h"
 
 uInt readBit(BitReader* bitReader) {
-    if (bitReader->currentBitPos == -1) {
+    if (bitReader->currentBitIdx == -1) {
+        bitReader->currentBitIdx = 7;
         bitReader->currentByte = fgetc(bitReader->inputFile);
-        bitReader->currentBitPos = 7;
-        bitReader->countReadBytes++;
     }
-    return (bitReader->currentByte >> (bitReader->currentBitPos--)) & 1;
+    bitReader->readBitsCounter++;
+    uInt kek = (bitReader->currentByte >> bitReader->currentBitIdx) & 1u;
+    bitReader->currentBitIdx--;
+    return kek;
 }
 
-BitReader* newBitReader(FILE* inputFile, uInt numberOfBytesToRead) {
+uInt haveBit(BitReader* bitReader) {
+    return bitReader->readBitsCounter < bitReader->bitsToReadTotal;
+}
+
+BitReader* newBitReader(FILE* inputFile, unsigned long long bitsToReadTotal) {
     BitReader* bitReader = (BitReader*)calloc(1, sizeof(BitReader));
     bitReader->inputFile = inputFile;
-    bitReader->currentByte = 0;
-    bitReader->currentBitPos = -1;
-    bitReader->bytesLeft = numberOfBytesToRead;
-    bitReader->countReadBytes = 0;
+    bitReader->bitsToReadTotal = bitsToReadTotal;
     bitReader->readBit = &readBit;
+    bitReader->haveBit = &haveBit;
+    bitReader->currentByte = 0;
+    bitReader->currentBitIdx = -1;
+    bitReader->readBitsCounter = 0;
     return bitReader;
 }

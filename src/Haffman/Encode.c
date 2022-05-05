@@ -24,6 +24,9 @@ void encode(char* inputFilename, char* outputFilename) {
     if (bytesInFile == 0) {
         printf("EMPTY FILE: Zero bytes in file\nNothing to encode\n");
         return;
+    } else if (bytesInFile == 1) {
+        printf("File must contain at least 2 bytes.\n");
+        return;
     }
 
     // Count occurrences of each of the bytes in the file
@@ -32,6 +35,22 @@ void encode(char* inputFilename, char* outputFilename) {
     for (int byteIndex = 0; byteIndex < bytesInFile; ++byteIndex) {
         uChar curByte = fgetc(inputFile);
         ++occurrencesCount[curByte];
+    }
+
+    // Check if there's only one byte
+    {
+        uInt countTotalPresentBytes = 0;
+        for (int i = 0; i < 256; ++i)
+            countTotalPresentBytes += occurrencesCount[i] > 0;
+        if (countTotalPresentBytes == 1) {
+            // Add auxiliary byte
+            for (int i = 0; i < 256; ++i) {
+                if (occurrencesCount[i] == 0) {
+                    occurrencesCount[i] = 1;
+                    break;
+                }
+            }
+        }
     }
 
     // Build Huffman Tree
@@ -56,40 +75,80 @@ void encode(char* inputFilename, char* outputFilename) {
     }
 
     // Get the string representation of the HTreeRoot
-    char* strReprHTree = (char*)calloc(1, sizeof(char));
-    uInt curCapacity = 1;
-    stringifyHTree(HTreeRoot, &strReprHTree, &curCapacity);
+    int size = 0;
+    uChar* hash = (uChar*)calloc(320, sizeof(uChar));
+    stringifyHTree(HTreeRoot, hash, &size);
 
-    // Debug: print out the stringified HTree
-    printf("%s\n", strReprHTree);
+    // Debug: Print bits of the string representation
+    for (int i = 0; i < size; ++i) {
+        for (int bit = 7; bit > -1; --bit)
+            printf("%d", 1 & (hash[i] >> bit));
+        printf("%c", (i % 2 ? '\n' : ' '));
+    }
+    printf("\n");
 
-    // Count how many unique bytes are there
-    uInt uniqueBytes = 0;
-    for (int i = 0; i < 256; ++i)
-        uniqueBytes += occurrencesCount[i] != 0;
+    // Calculate the number of trash bits of the last byte
+    uInt trashTailBits = 0;
+    {
+        uInt curReminder = 0;
+        fseek(inputFile, 0L, SEEK_SET);
+        for (int byteIndex = 0; byteIndex < bytesInFile; ++byteIndex) {
+            uChar curByte = fgetc(inputFile);
+            curReminder += codeLength[curByte];
+            curReminder %= 8u;
+        }
+        trashTailBits = (8u - curReminder) % 8u;
+    }
 
-    // PRINTING PART
+    // Print trashTailBits
+    printf("Trash Tailing Bits: %d\n", trashTailBits);
 
-    // Open the output file
+    // ============== START ENCODING & OUTPUTING =================
+
+    // Open outputFile
     FILE* outputFile = fopen(outputFilename, "wb");
     if (!outputFile) {
-        printf("Unable to open/create output file!\n");
+        printf("Can't open the file %s\n", outputFilename);
         return;
     }
-    // Print the first byte that stores "uniqueBytes - 1" (we use "-1" in order to fit into a byte)
-    fputc((int)uniqueBytes - 1, outputFile);
-    // Print the stringified HTree
-    fputs(strReprHTree, outputFile);
-    // Print the input file content via codes
-    fseek(inputFile, 0L, SEEK_SET);
-    BytePrinter* bytePrinter = newBytePrinter(outputFile);
-    for (uInt byteIndex = 0; byteIndex < bytesInFile; ++byteIndex) {
-        uChar curByte = fgetc(inputFile);
-        for (uInt bitIndex = 0; bitIndex < codeLength[curByte]; ++bitIndex) {
-            bytePrinter->pushBit(bytePrinter, codes[curByte][bitIndex] == '1');
+
+    // Output 1 byte that stores trashTailBits
+    fputc((char)trashTailBits, outputFile);
+
+    // Output 2 bytes that store length of HTree Representation
+    fputc((char)(size / 256), outputFile);
+    fputc((char)(size % 256), outputFile);
+
+    // Output HTree representation
+    for (int byteIndex = 0; byteIndex < size; ++byteIndex) {
+        fputc((char)hash[byteIndex], outputFile);
+    }
+
+    // Output the whole encoded
+    {
+        uChar curOutputByte = 0;
+        uInt curPos = 7;
+        fseek(inputFile, 0L, SEEK_SET);
+        for (int byteIndex = 0; byteIndex < bytesInFile; ++byteIndex) {
+            uChar curByte = fgetc(inputFile);
+            // Output the binary code for the curByte
+            for (int curBit = 0; curBit < codeLength[curByte]; ++curBit) {
+                if (codes[curByte][curBit] == '1') {
+                    curOutputByte |= (1u << curPos);
+                }
+                --curPos;
+                if (curPos == -1) {
+                    fputc(curOutputByte, outputFile);
+                    curOutputByte = 0;
+                    curPos = 7;
+                }
+            }
+        }
+        // last byte with trash tail
+        if (curPos != 7) {
+            fputc(curOutputByte, outputFile);
+            curOutputByte = 0;
+            curPos = 7;
         }
     }
-    bytePrinter->dropLast(bytePrinter);
-    // Print the number of defect bits (bits without meaning in the end)
-    fputc((int)bytePrinter->defectBitsNumber, outputFile);
 }

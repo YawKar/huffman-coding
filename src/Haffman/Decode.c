@@ -25,57 +25,35 @@ void decode(char* inputFilename, char* outputFilename) {
         return;
     }
 
-    // Move cursor to the beginning of the file
+    // Print bytes of the inputFile
+//    fseek(inputFile, 0L, SEEK_SET);
+//    for (int byteIndex = 0; byteIndex < bytesInFile; ++byteIndex) {
+//        uChar curByte = fgetc(inputFile);
+//        for (int bitIdx = 7; bitIdx > -1; --bitIdx) {
+//            printf("%d", (curByte >> bitIdx) & 1u);
+//        }
+//        printf("%c", (byteIndex % 2 ? '\n' : ' '));
+//    }
+//    printf("\n");
+
+    // Move cursor to the beginning of the inputFile
     fseek(inputFile, 0L, SEEK_SET);
 
-    // Get the first byte that stores "uniqueBytes - 1" (we use "-1" in order to fit into a byte)
-    uInt uniqueBytes = fgetc(inputFile) + 1;
+    // Get the number of trailing trash bits
+    uInt trashTailBits = fgetc(inputFile);
 
-    // Debug: print uniqueBytes
-    printf("uniqueBytes = %d\n", uniqueBytes);
+    // Get the length of HTreeRepresentation
+    uInt reprSize = (int)fgetc(inputFile) * 256;
+    reprSize += fgetc(inputFile);
 
-    // Get the stringified HTree
-    char* stringifiedHTree = (char*)calloc(1, sizeof(char));
-    {
-        uInt encountered = 0;
-        uInt strLen = 0;
-        uInt strCap = 1;
-        while (encountered != uniqueBytes) {
-            uChar curChar = fgetc(inputFile);
-            if (strLen == strCap - 1) {
-                char* newStr = (char*)calloc(strCap * 2 + 1, sizeof(char));
-                for (int i = 0; i < strLen; ++i)
-                    newStr[i] = stringifiedHTree[i];
-                free(stringifiedHTree);
-                stringifiedHTree = newStr;
-                strCap = strCap * 2 + 1;
-            }
-            stringifiedHTree[strLen++] = (char)curChar;
-            if (curChar != '1' && curChar != '0')
-                ++encountered;
-        }
-    }
+    // Get the HTreeRepresentation
+    uChar* HTreeRepr = (uChar*)calloc(reprSize, sizeof(uChar));
+    for (int byteIndex = 0; byteIndex < reprSize; ++byteIndex)
+        HTreeRepr[byteIndex] = fgetc(inputFile);
 
-    // Debug: print stringifiedHTree
-    printf("stringifiedHTree = %s\n", stringifiedHTree);
-
-    // Build HTree from the stringrepr
-    Node* HTreeRoot = newNode(0, 0, 0, 0, 0);
-    int curPos = 0;
-    buildHTreeFromString(HTreeRoot, stringifiedHTree, strlen(stringifiedHTree), &curPos);
-
-    // Calculate the body (minus: 1 first byte, stringified Htree, last byte);
-    uInt bytesInBody = bytesInFile - 1 - strlen(stringifiedHTree) - 1;
-
-    // Get the last byte of defect bits
-    fseek(inputFile, (long)bytesInFile - 1, SEEK_SET);
-    uInt defectBitsNumber = fgetc(inputFile);
-
-    // Return cursor to the beginning
-    fseek(inputFile, 0L, SEEK_SET);
-
-    // Create cursor in HTree
-    Node* cursor = HTreeRoot;
+    // Build HTree from repr
+    Node* HTree = newNode(0, 0, 0, 0, 0, 0);
+    buildHTreeFromByteRepr(HTree, HTreeRepr, reprSize);
 
     // Open output file
     FILE* outputFile = fopen(outputFilename, "wb");
@@ -84,21 +62,33 @@ void decode(char* inputFilename, char* outputFilename) {
         return;
     }
 
-    // Create BitReader instance
-    fseek(inputFile, bytesInFile - 1 - bytesInBody, SEEK_SET);
-    BitReader* bitReader = newBitReader(inputFile, bytesInBody);
-    for (long i = 0; i < (long)bytesInBody * 8 - defectBitsNumber; ++i) {
-        uInt curBit = bitReader->readBit(bitReader);
-        if (curBit) {
-            cursor = cursor->right;
-        } else {
-            cursor = cursor->left;
-        }
-        if (cursor->isLeaf) {
-            //printf("%c", cursor->byte);
-            fputc(cursor->byte, outputFile);
-            cursor = HTreeRoot;
+    // Decode and output
+    {
+        unsigned long long bitsToRead = (bytesInFile - 3uLL - reprSize) * 8uLL - trashTailBits;
+        BitReader *bitReader = newBitReader(inputFile, bitsToRead);
+        Node* curNode = HTree;
+        while (bitReader->haveBit(bitReader)) {
+            uInt curBit = bitReader->readBit(bitReader);
+            if (curBit == 0) {
+                curNode = curNode->left;
+                if (curNode->isLeaf) {
+                    fputc(curNode->byte, outputFile);
+                    curNode = HTree;
+                }
+            } else {
+                curNode = curNode->right;
+                if (curNode->isLeaf) {
+                    fputc(curNode->byte, outputFile);
+                    curNode = HTree;
+                }
+            }
         }
     }
-
 }
+/*
+77:M = b1 (1)
+86:V = b0 (1)
+01010101 10101001
+10100000
+Trash Tailing Bits: 6
+ */

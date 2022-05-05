@@ -3,6 +3,6 @@
 #include "Node.h"
 #include "../../SharedTypes.h"
 
-void stringifyHTree(Node* HTreeRoot, char** result, uInt* curCapacity);
+void stringifyHTree(Node* HTreeRoot, uChar* hash, int* size);
 
 #endif //HUFFMAN_CODING_STRINGIFYHTREE_H
